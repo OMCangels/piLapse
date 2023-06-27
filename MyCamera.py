@@ -1,4 +1,5 @@
 class MyCamera:
+    # TODO: create images on demand, with correct folder
     def capture_continuous(self, **kwargs):
         return self._images
 
@@ -13,6 +14,9 @@ class MyCamera:
 
 
 if __name__ == '__main__':
+    """
+    Create images for testing.
+    """
     import numpy
     from PIL import Image
 

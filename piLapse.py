@@ -32,8 +32,8 @@ default_folder = "piLapse"
               help="Images are saved here.")
 @click.option("-r", "--remote_path", type=str, default=None, show_default=True,
               help="Images are transmitted here via SFTP.\nLayout: hostname.subdomain.com/remote_path")
-@click.option("-ru", "--remote_user", type=str, default=None, help="User for remote upload.")
-@click.option("-rpw", "--remote_password", type=str, prompt=True, hide_input=True, help="Password for remote upload.")
+@click.option("-ru", "--remote_user", type=str, help="User for remote upload.")
+@click.option("-rpw", "--remote_password", type=str, help="Password for remote upload.")
 @click.option("-d", "--delete_local_files", type=bool, default=True, show_default=True,
               help="Delete local image files if remote path is specified.")
 def main(start, end, num_images, output_folder, delete_local_files, remote_path: str, remote_user, remote_password,
@@ -45,7 +45,7 @@ def main(start, end, num_images, output_folder, delete_local_files, remote_path:
         output_folder = pathlib.Path.home().joinpath(default_folder)
     else:
         output_folder = pathlib.Path(output_folder)
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    timestamp = start.strftime('%Y-%m-%d_%H-%M-%S')
     output_folder = output_folder.joinpath(timestamp)
 
     pause_ms = None if pause is None else int(pause * 1000)
@@ -67,6 +67,7 @@ def main(start, end, num_images, output_folder, delete_local_files, remote_path:
         path = remote_path.split("/", maxsplit=1)
         sftp_dict = {"host": path[0], "user": remote_user, "pw": remote_password, "path": path[1]}
 
+    print(f"\nCONFIGURATION:")
     print(f"Starting recording at: {start}")
     print(f"Ending recording at: {end}")
     print(f"Number of images: {num_images}")
@@ -74,6 +75,7 @@ def main(start, end, num_images, output_folder, delete_local_files, remote_path:
     print(f"Output folder: {output_folder}")
     print(f"Remote path: {remote_path}")
     print(f"Delete local files: {delete_local_files}")
+    print(f"\nTaking Timelapse")
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -116,7 +118,8 @@ def take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_
                           delete_local_files, sftp_dict):
     num_zeros = math.ceil(math.log10(num_images + 1))
     image_pattern = f"{output_folder}/image_{{counter:0{num_zeros}d}}_{{timestamp:%Y-%m-%d-%H-%M-%S}}.png"
-    img_times = range(math.floor(start.timestamp() * 1000), math.ceil(end.timestamp() * 1000), pause_ms)
+    img_times = range(math.floor(start.timestamp() * 1000 + pause_ms), math.ceil(end.timestamp() * 1000 + pause_ms),
+                      pause_ms)
 
     upload_worker = start_upload_worker(delete_local_files, sftp_dict)
 
@@ -124,9 +127,10 @@ def take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_
     """Just a fake to test"""
     picamera.PiCamera = MyCamera.MyCamera
 
-    wait_until(start.timestamp() * 1000)
     try:
         with picamera.PiCamera() as camera:
+            print(f"Waiting until start: {start}")
+            wait_until(start.timestamp() * 1000)
             for img_time, filename in zip(img_times, camera.capture_continuous(output=image_pattern)):
                 # TODO: use tqdm with img_times to provide %
                 # TODO: Log image taken

@@ -26,19 +26,23 @@ class UploadWorker(Process):
     def upload_files(self, hostname, username, password, remote_path):
         self.__start_remote_connection(hostname, username, password, remote_path)
         while True:
-            file = self.__upload_queue.get()
-            if file == self.__termination_symbol:
+            item = self.__upload_queue.get()
+            if item == self.__termination_symbol:
                 return
-            file = pathlib.Path(file)
+            file = pathlib.Path(item)
             try:
                 self._upload(file)
                 if self.__delete_local:
-                    try:
-                        file.unlink()
-                    except Exception as e:
-                        print(f"Error deleting local file ({file}): {e}", file=sys.stderr)
+                    self.__delete_local_file(file)
             except Exception as e:
                 print(f"Error uploading local file ({file}): {e}", file=sys.stderr)
+
+    @staticmethod
+    def __delete_local_file(file):
+        try:
+            file.unlink()
+        except Exception as e:
+            print(f"Error deleting local file ({file}): {e}", file=sys.stderr)
 
     def start(self) -> None:
         self.set_worker(self)
@@ -52,24 +56,23 @@ class UploadWorker(Process):
         self.set_worker(None)
 
     def _upload(self, path: pathlib.Path):
+        #     TODO Log upload
         with open(path, "rb") as upload_file:
             self.__ftp.storbinary(f"STOR {path.name}", upload_file)
 
-    #     TODO Log upload
-
     def __start_remote_connection(self, hostname, username, password, remote_path):
         self.__ftp = ftplib.FTP_TLS(host=hostname, user=username, passwd=password)
-        try:
-            self.__ftp.mkd(remote_path)
-        except ftplib.error_perm as e:
-            print(f"mkdir failed: {e}", file=sys.stderr)
+        self.__ftp.mkd(remote_path)
         self.__ftp.cwd(remote_path)
 
 
 if __name__ == '__main__':
+    """
+    Test your SFTP connection.
+    """
     host = "fritz.box"
     user = "ftp_user"
-    pw = "i_love_u"
+    pw = "ftp_password"
     with ftplib.FTP_TLS(host=host, user=user, passwd=pw) as ftp:
         status = ftp.getwelcome()
         print(f'Connection status: {status}')
