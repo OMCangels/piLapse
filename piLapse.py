@@ -27,7 +27,8 @@ default_folder = "piLapse"
               help="Time when recording ends. If -n and -p are both specified then this will be ignored.")
 @click.option("-n", "--num_images", type=click.IntRange(min=1), default=240, show_default=True,
               help="Number of images.")
-@click.option("-p", "--pause", type=click.FloatRange(min=0.5), help="Pause between images in seconds.")
+@click.option("-p", "--pause", type=click.FloatRange(min=0.5), default=None, help="Pause between images in seconds.")
+@click.option("-img", "--img_type", type=str, default="jpg", show_default=True, help="Image type.")
 @click.option("-o", "--output_folder", type=str, default=f"~/{default_folder}", show_default=True,
               help="Images are saved here.")
 @click.option("-r", "--remote_path", type=str, default=None, show_default=True,
@@ -36,8 +37,8 @@ default_folder = "piLapse"
 @click.option("-rpw", "--remote_password", type=str, help="Password for remote upload.")
 @click.option("-d", "--delete_local_files", type=bool, default=True, show_default=True,
               help="Delete local image files if remote path is specified.")
-def main(start, end, num_images, output_folder, delete_local_files, remote_path: str, remote_user, remote_password,
-         pause=None):
+def main(start, end, num_images, pause, output_folder, delete_local_files, remote_path: str, remote_user,
+         remote_password, img_type):
     start = dateparser.parse(start, settings={"PREFER_DATES_FROM": "future"})
     end = dateparser.parse(end, settings={"PREFER_DATES_FROM": "future"})
 
@@ -72,6 +73,7 @@ def main(start, end, num_images, output_folder, delete_local_files, remote_path:
     print(f"Ending recording at: {end}")
     print(f"Number of images: {num_images}")
     print(f"Time between two images: {pause}s")
+    print(f"Image Type: {img_type}")
     print(f"Output folder: {output_folder}")
     print(f"Remote path: {remote_path}")
     print(f"Delete local files: {delete_local_files}")
@@ -79,7 +81,7 @@ def main(start, end, num_images, output_folder, delete_local_files, remote_path:
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    take_timelapse_images(start, end, num_images, pause_ms, output_folder, delete_local_files, sftp_dict)
+    take_timelapse_images(start, end, num_images, img_type, pause_ms, output_folder, delete_local_files, sftp_dict)
 
 
 def wait_until(time_ms):
@@ -114,10 +116,10 @@ def finish_upload_worker(worker):
     worker.join()
 
 
-def take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_images, pause_ms, output_folder,
-                          delete_local_files, sftp_dict):
+def take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_images, img_type, pause_ms,
+                          output_folder, delete_local_files, sftp_dict):
     num_zeros = math.ceil(math.log10(num_images + 1))
-    image_pattern = f"{output_folder}/image_{{counter:0{num_zeros}d}}_{{timestamp:%Y-%m-%d-%H-%M-%S}}.png"
+    image_pattern = f"{output_folder}/image_{{counter:0{num_zeros}d}}_{{timestamp:%Y-%m-%d-%H-%M-%S}}.{img_type}"
     img_times = range(math.floor(start.timestamp() * 1000 + pause_ms), math.ceil(end.timestamp() * 1000 + pause_ms),
                       pause_ms)
 
