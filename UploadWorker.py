@@ -17,28 +17,28 @@ class UploadWorker(Process):
         UploadWorker.__active_worker = worker
 
     def __init__(self, hostname, remote_path, username, password, queue: Queue, delete_local, termination_symbol=None):
-        self.__upload_queue = queue
-        self.__delete_local = delete_local
-        self.__termination_symbol = termination_symbol
-        self.__ftp = None
+        self._upload_queue = queue
+        self._delete_local = delete_local
+        self._termination_symbol = termination_symbol
+        self._ftp = None
         super().__init__(target=self.upload_files, args=(hostname, username, password, remote_path))
 
     def upload_files(self, hostname, username, password, remote_path):
-        self.__start_remote_connection(hostname, username, password, remote_path)
+        self._start_remote_connection(hostname, username, password, remote_path)
         while True:
-            item = self.__upload_queue.get()
-            if item == self.__termination_symbol:
+            item = self._upload_queue.get()
+            if item == self._termination_symbol:
                 return
             file = pathlib.Path(item)
             try:
                 self._upload(file)
-                if self.__delete_local:
-                    self.__delete_local_file(file)
+                if self._delete_local:
+                    self._delete_local_file(file)
             except Exception as e:
                 print(f"Error uploading local file ({file}): {e}", file=sys.stderr)
 
     @staticmethod
-    def __delete_local_file(file):
+    def _delete_local_file(file):
         try:
             file.unlink()
         except Exception as e:
@@ -49,21 +49,21 @@ class UploadWorker(Process):
         super().start()
 
     def add_work(self, filename):
-        self.__upload_queue.put_nowait(filename)
+        self._upload_queue.put_nowait(filename)
 
     def stop_worker(self):
-        self.__upload_queue.put(None)
+        self._upload_queue.put(None)
         self.set_worker(None)
 
     def _upload(self, path: pathlib.Path):
         #     TODO Log upload
         with open(path, "rb") as upload_file:
-            self.__ftp.storbinary(f"STOR {path.name}", upload_file)
+            self._ftp.storbinary(f"STOR {path.name}", upload_file)
 
-    def __start_remote_connection(self, hostname, username, password, remote_path):
-        self.__ftp = ftplib.FTP_TLS(host=hostname, user=username, passwd=password)
-        self.__ftp.mkd(remote_path)
-        self.__ftp.cwd(remote_path)
+    def _start_remote_connection(self, hostname, username, password, remote_path):
+        self._ftp = ftplib.FTP_TLS(host=hostname, user=username, passwd=password)
+        self._ftp.mkd(remote_path)
+        self._ftp.cwd(remote_path)
 
 
 if __name__ == '__main__':
