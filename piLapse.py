@@ -118,7 +118,7 @@ def finish_upload_worker(worker):
 
 def take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_images, img_type, pause_ms,
                           output_folder, delete_local_files, sftp_dict):
-    num_zeros = math.ceil(math.log10(num_images + 1))
+    num_zeros = math.ceil(math.log10(num_images))
     image_pattern = f"{output_folder}/image_{{counter:0{num_zeros}d}}_{{timestamp:%Y-%m-%d-%H-%M-%S}}.{img_type}"
     img_times = range(math.floor(start.timestamp() * 1000 + pause_ms), math.ceil(end.timestamp() * 1000 + pause_ms),
                       pause_ms)

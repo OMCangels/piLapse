@@ -1,10 +1,20 @@
-class MyCamera:
-    # TODO: create images on demand, with correct folder
-    def capture_continuous(self, **kwargs):
-        return self._images
+import datetime
 
-    def __init__(self):
-        self._images = [f"/home/pi/piLapse/img_{x}.png" for x in range(10)]
+import numpy as np
+from PIL import Image
+
+
+class MyCamera:
+    def capture_continuous(self, output):
+        counter = 0
+        while True:
+            filename = output.format(
+                counter=counter,
+                timestamp=datetime.datetime.now(),
+            )
+            color = np.random.choice(range(256), size=3)
+            yield self._make_image(100, color, filename)
+            counter += 1
 
     def __enter__(self):
         return self
@@ -12,18 +22,10 @@ class MyCamera:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
-
-if __name__ == '__main__':
-    """
-    Create images for testing.
-    """
-    import numpy
-    from PIL import Image
-
-    num_images = 10
-    image_size_px = 250
-
-    for num in range(num_images):
-        imarray = numpy.random.rand(image_size_px, image_size_px, 3) * 255 * (num / num_images)
-        im = Image.fromarray(imarray.astype('uint8')).convert('RGBA')
-        im.save(f'/home/pi/piLapse/img_{num}.png')
+    @staticmethod
+    def _make_image(size_in_px, color, path):
+        ones = np.ones((size_in_px, size_in_px, 3))
+        img_array = ones * color
+        image = Image.fromarray(img_array.astype('uint8')).convert('RGB')
+        image.save(path)
+        return path
