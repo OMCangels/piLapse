@@ -1,69 +1,85 @@
 import ftplib
+import logging
 import pathlib
 import sys
 from multiprocessing import Process, Queue
-from typing import Optional
 
 
 class UploadWorker(Process):
-    __active_worker: Optional['UploadWorker'] = None
 
-    @classmethod
-    def get_worker(cls):
-        return UploadWorker.__active_worker
-
-    @classmethod
-    def set_worker(cls, worker):
-        UploadWorker.__active_worker = worker
-
-    def __init__(self, hostname, remote_path, username, password, queue: Queue, delete_local, termination_symbol=None):
+    def __init__(self, ftps_dict, queue: Queue, delete_local, termination_symbol=None):
         self._upload_queue = queue
         self._delete_local = delete_local
         self._termination_symbol = termination_symbol
+        self._ftps_dict = ftps_dict
         self._ftp = None
-        super().__init__(target=self.upload_files, args=(hostname, username, password, remote_path))
+        self._logger = logging.getLogger(__name__)
+        super().__init__(target=self.upload_files)
 
-    def upload_files(self, hostname, username, password, remote_path):
-        self._start_remote_connection(hostname, username, password, remote_path)
+    def upload_files(self):
+        self._logger.info("Worker started")
+        self._start_ftps_connection()
         while True:
             item = self._upload_queue.get()
             if item == self._termination_symbol:
-                return
-            file = pathlib.Path(item)
-            try:
-                self._upload(file)
-                if self._delete_local:
-                    self._delete_local_file(file)
-            except Exception as e:
-                print(f"Error uploading local file ({file}): {e}", file=sys.stderr)
-
-    @staticmethod
-    def _delete_local_file(file):
-        try:
-            file.unlink()
-        except Exception as e:
-            print(f"Error deleting local file ({file}): {e}", file=sys.stderr)
-
-    def start(self) -> None:
-        self.set_worker(self)
-        super().start()
+                if self._upload_queue.empty():
+                    return
+                else:
+                    self._upload_queue.put(self._termination_symbol)
+            else:
+                file = pathlib.Path(item)
+                try:
+                    self._upload(file)
+                    if self._delete_local:
+                        self._delete_local_file(file)
+                except ftplib.all_errors as e:
+                    self._logger.error(f"Error uploading local file ({file})", exc_info=True)
+                    print(f"Error uploading: {e}", file=sys.stderr)
+                    self._upload_queue.put(item)
 
     def add_work(self, filename):
         self._upload_queue.put_nowait(filename)
 
     def stop_worker(self):
         self._upload_queue.put(None)
-        self.set_worker(None)
 
     def _upload(self, path: pathlib.Path):
-        #     TODO Log upload
+        self._logger.debug(f"Uploading file ({path})")
         with open(path, "rb") as upload_file:
+            self._check_ftp_connection()
             self._ftp.storbinary(f"STOR {path.name}", upload_file)
+        self._logger.debug(f"Successfully uploaded file ({path})")
 
-    def _start_remote_connection(self, hostname, username, password, remote_path):
-        self._ftp = ftplib.FTP_TLS(host=hostname, user=username, passwd=password)
-        self._ftp.mkd(remote_path)
-        self._ftp.cwd(remote_path)
+    def _start_ftps_connection(self):
+        self._ftp = ftps = ftplib.FTP_TLS(host=self._ftps_dict["host"], user=self._ftps_dict["user"],
+                                          passwd=self._ftps_dict["pw"])
+        remote_path = self._ftps_dict["path"]
+        try:
+            ftps.mkd(remote_path)
+        except ftplib.error_perm as e:
+            if "550" in e.args[0]:
+                pass
+            else:
+                raise e
+        ftps.cwd(remote_path)
+        self._logger.debug("Initialized FTPS connection")
+        return ftps
+
+    def _check_ftp_connection(self):
+        try:
+            self._ftp.voidcmd("NOOP")
+        except (ftplib.error_temp, ftplib.error_perm) as e:
+            if "421" in e.args[0]:
+                self._ftp.close()
+                self._ftp = self._start_ftps_connection()
+            else:
+                raise e
+
+    def _delete_local_file(self, file):
+        try:
+            file.unlink()
+        except FileNotFoundError:
+            self._logger.error(f"Error deleting local file ({file})", exc_info=True)
 
 
 if __name__ == '__main__':
