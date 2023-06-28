@@ -1,2 +1,4 @@
 # piLapse
-Customizable Timelapse with a Raspberry Pi
+Customizable Timelapse with a RaspberryPi
+
+TODO
