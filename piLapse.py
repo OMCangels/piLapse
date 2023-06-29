@@ -28,18 +28,13 @@ _default_folder = "piLapse"
 @click.option("-img", "--img_type", type=str, default="jpg", show_default=True, help="Image type.")
 @click.option("-o", "--output_folder", type=str, default=f"~/{_default_folder}", show_default=True,
               help="Images are saved here.")
-@click.option("-r", "--remote_path", type=str, default=None, show_default=True,
-              help="Images are transmitted here via FTPS.\nLayout: hostname.subdomain.com/remote_path")
-@click.option("-ru", "--remote_user", type=str, help="User for remote upload.")
-@click.option("-rpw", "--remote_password", type=str, help="Password for remote upload.")
-@click.option("-d", "--delete_local_files", type=bool, default=True, show_default=True,
-              help="Delete local image files if remote path is specified.")
 @click.option("-l", "--log_file_path", type=str, default="LOG.log", show_default=True,
               help="Filepath used for logging.")
 @click.option("-ll", "--log_level_str", type=str, default="INFO", show_default=True,
               help="Log level used for logging. Possible:[NONE,DEBUG,INFO]")
-def timelapse(start, end, num_images, pause, output_folder, delete_local_files, remote_path, remote_user,
-              remote_password, img_type, log_file_path, log_level_str):
+@click.option("-uarg", "--upload_arg", "upload_worker_args", type=str, multiple=True, default=None, show_default=True,
+              help="Arguments used for uploading the files to a remote site. Currently only FTP(S) is available.")
+def timelapse(start, end, num_images, pause, output_folder, img_type, log_file_path, log_level_str, upload_worker_args):
     start = dateparser.parse(start, settings={"PREFER_DATES_FROM": "future"})
     end = dateparser.parse(end, settings={"PREFER_DATES_FROM": "future"})
 
@@ -47,8 +42,8 @@ def timelapse(start, end, num_images, pause, output_folder, delete_local_files, 
         output_folder = pathlib.Path.home().joinpath(_default_folder)
     else:
         output_folder = pathlib.Path(output_folder)
-    timestamp = start.strftime('%Y-%m-%d_%H-%M-%S')
-    output_folder = output_folder.joinpath(timestamp)
+    start_timestamp = start.strftime('%Y-%m-%d_%H-%M-%S')
+    output_folder = output_folder.joinpath(start_timestamp)
     output_folder.mkdir(parents=True, exist_ok=True)
 
     if log_level_str == "NONE":
@@ -63,7 +58,7 @@ def timelapse(start, end, num_images, pause, output_folder, delete_local_files, 
         logging.basicConfig(filename=log_file_path, level=log_level,
                             format='%(asctime)s:%(name)s:%(levelname)s:%(message)s')
 
-    logging.info(f"Created output directory ({output_folder}")
+    logging.info(f"Created output directory ({output_folder})")
 
     pause_ms = None if pause is None else int(pause * 1000)
 
@@ -76,33 +71,26 @@ def timelapse(start, end, num_images, pause, output_folder, delete_local_files, 
             duration_ms = pause_ms * (num_images - 1)
             end = dateparser.parse(f"{start.timestamp() + duration_ms / 1000}")
 
-    if remote_path is None:
-        delete_local_files = False
-        sftp_dict = None
-    else:
-        remote_path = remote_path + "/" + timestamp
-        path = remote_path.split("/", maxsplit=1)
-        sftp_dict = {"host": path[0], "user": remote_user, "pw": remote_password, "path": path[1]}
-
     info = f"\nCONFIGURATION:\n" + f"Starting recording at: {start}\n" + \
            f"Ending recording at: {end}\n" + f"Number " + f"of images: {num_images}\n" + \
            f"Time between two images: {pause}s\n" + f"Image Type: {img_type}\n" + \
-           f"Output folder: {output_folder}\n" + f"Remote path: {remote_path}\n" + \
-           f"Delete local files: {delete_local_files}\n" + f"Logging path: {log_file_path}\n" + \
-           f"Log level: {log_level_str}\n"
+           f"Output folder: {output_folder}\n" + f"Logging path: {log_file_path}\n" + \
+           f"Log level: {log_level_str}\n" + f"Upload arguments: {upload_worker_args}\n"
     print(info)
     logging.info(info)
 
-    upload_worker = _start_upload_worker(delete_local_files, sftp_dict)
+    upload_worker = _start_upload_worker(upload_worker_args, start_timestamp)
     try:
         _take_timelapse_images(start, end, num_images, img_type, pause_ms, output_folder, upload_worker)
     finally:
         if log_level_str != "NONE":
-            upload_worker.add_work(log_file_path)
+            _add_to_upload_worker(log_file_path, upload_worker)
         _finish_upload_worker(upload_worker)
 
-    if delete_local_files:
+    try:
         output_folder.rmdir()
+    except OSError:
+        pass
 
 
 def _take_timelapse_images(start: datetime.datetime, end: datetime.datetime, num_images, img_type, pause_ms,
@@ -146,11 +134,12 @@ def _wait_until(time_ms, logger):
         logger.error(f"Negative sleep time: {time_difference_to_next_image}")
 
 
-def _start_upload_worker(delete_local_files, ftps_dict) -> Optional[UploadWorker]:
-    if ftps_dict is None:
+def _start_upload_worker(upload_worker_args, start_timestamp) -> Optional[UploadWorker]:
+    if upload_worker_args is None:
         return None
     queue = mp.Queue()
-    worker = UploadWorker(ftps_dict, queue, delete_local_files)
+    kwargs = UploadWorker.parse_args(upload_worker_args)
+    worker = UploadWorker(queue, termination_symbol=None, start_timestamp=start_timestamp, **kwargs)
     worker.start()
     return worker
 

@@ -3,18 +3,27 @@ import logging
 import pathlib
 import sys
 from multiprocessing import Process, Queue
+from typing import Optional
 
 
 class UploadWorker(Process):
 
-    def __init__(self, ftps_dict, queue: Queue, delete_local, termination_symbol=None):
+    def __init__(self, queue: Queue, termination_symbol, start_timestamp, hostname, path, username="", password="",
+                 delete_local=True):
         self._upload_queue = queue
+        self._hostname = hostname
+        self._path = f"{path}/{start_timestamp}"
+        self._username = username
+        self._password = password
         self._delete_local = delete_local
         self._termination_symbol = termination_symbol
-        self._ftps_dict = ftps_dict
-        self._ftp = None
+        self._ftp: Optional[ftplib.FTP] = None
         self._logger = logging.getLogger(__name__)
         super().__init__(target=self.upload_files)
+
+    @classmethod
+    def parse_args(cls, upload_worker_args):
+        return dict(arg.split("=") for arg in upload_worker_args)
 
     def upload_files(self):
         self._logger.info("Worker started")
@@ -51,19 +60,26 @@ class UploadWorker(Process):
         self._logger.debug(f"Successfully uploaded file ({path})")
 
     def _start_ftps_connection(self):
-        self._ftp = ftps = ftplib.FTP_TLS(host=self._ftps_dict["host"], user=self._ftps_dict["user"],
-                                          passwd=self._ftps_dict["pw"])
-        remote_path = self._ftps_dict["path"]
-        try:
-            ftps.mkd(remote_path)
-        except ftplib.error_perm as e:
-            if "550" in e.args[0]:
-                pass
-            else:
-                raise e
-        ftps.cwd(remote_path)
+        self._ftp = ftps = ftplib.FTP_TLS(host=self._hostname, user=self._username,
+                                          passwd=self._password)
+        self._make_nested_dir(self._path)
+        self._ftp.cwd(self._path)
         self._logger.debug("Initialized FTPS connection")
         return ftps
+
+    def _make_nested_dir(self, path):
+        start_dir = self._ftp.pwd()
+        for folder in path.split("/"):
+            try:
+                self._ftp.mkd(folder)
+            except ftplib.error_perm as e:
+                if "550" in e.args[0]:
+                    continue
+                else:
+                    raise e
+            finally:
+                self._ftp.cwd(folder)
+        self._ftp.cwd(start_dir)
 
     def _check_ftp_connection(self):
         try:
@@ -71,7 +87,7 @@ class UploadWorker(Process):
         except (ftplib.error_temp, ftplib.error_perm) as e:
             if "421" in e.args[0]:
                 self._ftp.close()
-                self._ftp = self._start_ftps_connection()
+                self._start_ftps_connection()
             else:
                 raise e
 
